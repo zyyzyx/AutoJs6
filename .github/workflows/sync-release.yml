@@ -1,4 +1,4 @@
-name: 同步上游 Releases
+name: 同步Release
 on:
   workflow_dispatch:
 
@@ -6,52 +6,63 @@ jobs:
   sync-releases:
     runs-on: ubuntu-latest
     steps:
-      - name: 下载并同步所有 Releases
+      - name: 强制下载并同步所有 Releases
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SRC_REPO: SuperMonster003/AutoJs6
           DST_REPO: ${{ github.repository }}
         run: |
-          # 安装依赖
           sudo apt-get install -y jq curl
-          
-          # 获取原项目所有 releases
+
           curl -s https://api.github.com/repos/$SRC_REPO/releases | jq -r '.[] | @base64' | while read rel; do
             rel=$(echo $rel | base64 --decode)
-            
+
             tag=$(echo $rel | jq -r '.tag_name')
             name=$(echo $rel | jq -r '.name')
             body=$(echo $rel | jq -r '.body')
             draft=$(echo $rel | jq -r '.draft')
             prerelease=$(echo $rel | jq -r '.prerelease')
-            
-            echo "正在处理 release: $tag"
-            
-            # 创建 release
+
+            echo "==================================="
+            echo "处理：$tag"
+            echo "==================================="
+
+            # 先删除已有的 release
+            echo "删除旧的 release..."
+            old_id=$(curl -s "https://api.github.com/repos/$DST_REPO/releases/tags/$tag" | jq -r '.id')
+            if [ "$old_id" != "null" ]; then
+              curl -s -X DELETE \
+                -H "Authorization: token $GITHUB_TOKEN" \
+                "https://api.github.com/repos/$DST_REPO/releases/$old_id"
+            fi
+
+            # 重新创建 release
+            echo "创建新的 release..."
             create_resp=$(curl -s -X POST https://api.github.com/repos/$DST_REPO/releases \
               -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/json" \
               -d "{\"tag_name\":\"$tag\",\"name\":\"$name\",\"body\":\"$body\",\"draft\":$draft,\"prerelease\":$prerelease}")
-            
+
             release_id=$(echo $create_resp | jq -r '.id')
-            if [ "$release_id" = "null" ]; then
-              echo "已存在，跳过: $tag"
-              continue
-            fi
-            
-            # 下载并上传所有附件
+
+            # 上传所有附件
             echo $rel | jq -r '.assets[] | @base64' | while read asset; do
               asset=$(echo $asset | base64 --decode)
               url=$(echo $asset | jq -r '.browser_download_url')
               filename=$(echo $asset | jq -r '.name')
-              
-              echo "下载: $filename"
+
+              echo "下载：$filename"
               curl -s -L -o "$filename" "$url"
-              
-              echo "上传: $filename"
-              curl -s -X POST https://uploads.github.com/repos/$DST_REPO/releases/$release_id/assets?name="$filename" \
+
+              echo "上传：$filename"
+              curl -s -X POST "https://uploads.github.com/repos/$DST_REPO/releases/$release_id/assets?name=$filename" \
                 -H "Authorization: token $GITHUB_TOKEN" \
                 -H "Content-Type: application/octet-stream" \
                 --data-binary @"$filename"
+
+              rm -f "$filename"
             done
+
+            echo "✅ $tag 同步完成！"
+            echo
           done
