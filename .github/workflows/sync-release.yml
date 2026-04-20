@@ -1,0 +1,16 @@
+name: Sync Upstream Releases
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天自动同步一次
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync Releases
+        uses: bradvin/sync-releases@v2
+        with:
+          upstream-repo: SuperMonster003/AutoJs6
+          github-token: ${{ secrets.GITHUB_TOKEN }}
